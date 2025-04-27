@@ -1,16 +1,17 @@
 package chessViewController;
 
+import chessModel.Board;
+import chessModel.Game;
+import chessModel.Player;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.awt.Point;
 import java.awt.Toolkit;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
-
+import java.util.ArrayList;
+import java.util.List;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -23,223 +24,198 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingConstants;
 import javax.swing.Timer;
-import javax.swing.UIManager;
 import javax.swing.filechooser.FileNameExtensionFilter;
-
-import chessModel.Board;
-import chessModel.Game;
-import chessModel.Player;
 
 @SuppressWarnings("serial")
 public class GraphicsGUI extends JFrame {
-	private JMenuBar menu;
-	private JMenu file;
-	private JMenuItem save, details;
-	private Game game;
-	private ChessView chessView;
-	private Timer updateTimer;
-	JLabel timer1Label;
-	JLabel timer2Label;
-	JLabel player1Score;
-	JLabel player2Score;
 
-	public GraphicsGUI(int gameMode, Player player1, Player player2) {
+    private final JMenuItem saveItem;
+    private final JMenuItem detailsItem;
+    private final JLabel timer1Label = new JLabel("", SwingConstants.CENTER);
+    private final JLabel timer2Label = new JLabel("", SwingConstants.CENTER);
+    private final JLabel player1Score = new JLabel("", SwingConstants.CENTER);
+    private final JLabel player2Score = new JLabel("", SwingConstants.CENTER);
+    private final ChessView chessView;
+    private final Timer updateTimer;
+    private final Game game;
+    private boolean coverageShown = false;
 
-		// this.setResizable(false);
-		this.setMinimumSize(new Dimension(300, 300));
+    public GraphicsGUI(int gameMode, Player player1, Player player2) {
+        super("Chess");
 
-		setVisible(true);
+        setMinimumSize(new Dimension(300, 300));
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLayout(new BorderLayout());
 
-		// Set to the native look and feel
-		try {
-			UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-		} catch (Exception e) {
-			System.out.println("Could not find native look and feel.");
-		}
+        // Menu
+        JMenuBar menuBar = new JMenuBar();
+        JMenu fileMenu = new JMenu("File");
+        saveItem = new JMenuItem("Save...");
+        detailsItem = new JMenuItem("View...");
+        fileMenu.add(saveItem);
+        fileMenu.add(detailsItem);
+        menuBar.add(fileMenu);
+        setJMenuBar(menuBar);
 
-		centerWindow();
+        // Game + view
+        game = new Game(gameMode, player1, player2);
+        Board board = game.getBoard();
+        chessView = new ChessView(board);
 
-		this.setLayout(new BorderLayout());
+        setupHumanPlayers(player1, player2);
 
-		menu = new JMenuBar();
-		file = new JMenu("File");
-		save = new JMenuItem("Save...");
-		details = new JMenuItem("View...");
-		menu.add(file);
-		file.add(save);
-		file.add(details);
+        // Timer & score panel
+        JPanel timerScorePanel = new JPanel(new GridLayout(1, 4));
+        timerScorePanel.add(timer1Label);
+        timerScorePanel.add(player1Score);
+        timerScorePanel.add(player2Score);
+        timerScorePanel.add(timer2Label);
 
-		this.setJMenuBar(menu);
+        add(timerScorePanel, BorderLayout.SOUTH);
+        add(chessView, BorderLayout.CENTER);
 
-		game = new Game(gameMode, player1, player2);
+        // UI updater ms
+        updateTimer = new Timer(200, e -> updateUI());
+        updateTimer.start();
 
-		final Board board = game.getBoard();
+        setupActions(board);
 
-		chessView = new ChessView(board);
+        pack();
+        centerWindow();
+        setVisible(true);
+    }
 
-		if (player2 instanceof HumanPlayer) {
-			((HumanPlayer) player2).setupView(this, chessView);
-		}
-		if (player1 instanceof HumanPlayer) {
-			((HumanPlayer) player1).setupView(this, chessView);
-		}
-		
+    private void setupHumanPlayers(Player p1, Player p2) {
+        if (p1 instanceof HumanPlayer hp1) {
+            hp1.setupView(this, chessView);
+        }
+        if (p2 instanceof HumanPlayer hp2) {
+            hp2.setupView(this, chessView);
+        }
+    }
 
-		// Timer/Score area stuff
-		timer1Label = new JLabel("", SwingConstants.CENTER);
-		timer2Label = new JLabel("", SwingConstants.CENTER);
-		player1Score = new JLabel("", SwingConstants.CENTER);
-		player2Score = new JLabel("", SwingConstants.CENTER);
-		updateTimer = new Timer(100, new ActionListener() { // Updated 10
-																	// times a
-																	// second
-			public void actionPerformed(ActionEvent e) {
-				if (game.getCurrentSide() == 0) {
-					timer1Label.setText("<html>P1 Time: <font color='red'>" + game.getPlayer1Time() + "</font></html>");
-					timer2Label.setText("<html>P2 Time: " + game.getPlayer2Time() + "</html>");
-				} else if (game.getCurrentSide() == 1) {
-					timer1Label.setText("<html>P1 Time: " + game.getPlayer1Time() + "</html>");
-					timer2Label.setText("<html>P2 Time: <font color='red'>" + game.getPlayer2Time() + "</font></html>");
-				}
-				player1Score.setText("Score: " + game.getPlayer1Score());
-				player2Score.setText("Score: " + game.getPlayer2Score());
-				isOver();
-				chessView.repaint();
-			}
-		});
-		updateTimer.start();
-		JPanel timerScorePanel = new JPanel();
-		timerScorePanel.setLayout(new GridLayout(1, 4));
-		timerScorePanel.add(timer1Label);
-		timerScorePanel.add(player1Score);
-		timerScorePanel.add(player2Score);
-		timerScorePanel.add(timer2Label);
-		this.add(timerScorePanel, BorderLayout.SOUTH);
+    private void setupActions(Board board) {
+        saveItem.addActionListener(e -> saveGame(board));
+        detailsItem.addActionListener(e -> showDetails(board));
+    }
 
-		this.add(chessView, BorderLayout.CENTER);
+    private void updateUI() {
+        // clocks
+        if (game.getCurrentSide() == 0) {
+            timer1Label.setText(htmlLabel("P1 Time", true, game.getPlayer1Time()));
+            timer2Label.setText(htmlLabel("P2 Time", false, game.getPlayer2Time()));
+        } else {
+            timer1Label.setText(htmlLabel("P1 Time", false, game.getPlayer1Time()));
+            timer2Label.setText(htmlLabel("P2 Time", true, game.getPlayer2Time()));
+        }
+        // scores
+        player1Score.setText("Score: " + game.getPlayer1Score());
+        player2Score.setText("Score: " + game.getPlayer2Score());
 
-		pack();
+        // end-of-game highlighting, one time only
+        if (!coverageShown && gameOver()) {
+            coverageShown = true;
+            updateTimer.stop();
+            highlightWinnerCoverage();
+        }
 
-		centerWindow();
-		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        chessView.repaint();
+    }
 
-		save.addActionListener(new ActionListener() {
+    private boolean gameOver() {
+        // if the engine doesn’t think it’s over yet, do nothing
+        if (!game.isGameOver()) {
+            return false;
+        }
 
-			// @Override
-			public void actionPerformed(ActionEvent e) {
-				JFileChooser fc = new JFileChooser();
-				File f = new File(System.getProperty("user.home"));
-				fc.setFileFilter(new FileNameExtensionFilter("Text File", "txt"));
-				f.mkdirs();
-				fc.setCurrentDirectory(f);
-				fc.showSaveDialog(fc.getParent());
-				try {
-					PrintWriter pw = new PrintWriter(fc.getSelectedFile());
-					StringBuilder log = new StringBuilder();
-					log.append(board.getPGN());
-					pw.write(log.toString());
-					pw.close();
-				} catch (FileNotFoundException e1) {
-					popup("Unable to write file");
-				}
-			}
-		});
+        // once it is, show exactly the human‐readable reason
+        popup(game.getEndReason());
+        return true;
+    }
 
-		details.addActionListener(new ActionListener() {
+    private void highlightWinnerCoverage() {
+        Board board = game.getBoard();
+        int side = game.getWinner();           // highlight the *winner*
+        List<Point> squares = new ArrayList<>();
 
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				JPanel p = new JPanel();
-				p.setLayout(new BorderLayout());
-				p.setSize(200,200);
+        // board.getAllMoves(side) returns [fromX,fromY,toX,toY] for every legal move
+        for (Integer[] mv : board.getAllMoves(side)) {
+            if (mv != null && mv.length >= 4) {
+                int toX = mv[2], toY = mv[3];
+                // toY = column, toX = row in ChessView coordinates
+                squares.add(new Point(toY, toX));
+            }
+        }
 
-				JTextArea pgn = new JTextArea("PGN:\n" + board.getPGN(), 8, 35);
-				pgn.setEditable(false);
+        chessView.setHighlightSquares(squares);
+    }
 
-				JScrollPane pgnScrollPane = new JScrollPane(pgn);
-				pgnScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
-				
-				JTextArea fen = new JTextArea(board.getFEN());
-				fen.setEditable(false);
-				fen.setForeground(new Color(22, 22, 200));
+    private void saveGame(Board board) {
+        JFileChooser chooser = new JFileChooser(System.getProperty("user.home"));
+        chooser.setFileFilter(new FileNameExtensionFilter("Text File", "txt"));
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            try (PrintWriter pw = new PrintWriter(chooser.getSelectedFile())) {
+                pw.write(board.getPGN());
+            } catch (FileNotFoundException e) {
+                popup("Unable to write file");
+            }
+        }
+    }
 
-				JTextArea raw = new JTextArea(4, 35);
-				raw.setText(board.getLogRaw());
-				raw.setEditable(false);
+    private void showDetails(Board board) {
+        JPanel p = new JPanel(new GridLayout(3, 1, 5, 5));
+        p.add(buildScrollPanel("PGN", board.getPGN()));
+        p.add(buildScrollPanel("FEN", board.getFEN()));
+        p.add(buildScrollPanel("Raw Moves", board.getMoveLog().toString()));
+        JOptionPane.showMessageDialog(this, p, "Game Details", JOptionPane.PLAIN_MESSAGE);
+    }
 
-				JScrollPane rawScrollPane = new JScrollPane(raw);
-				rawScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
-				
-				JPanel pgnPanel = new JPanel();
-				pgnPanel.setLayout(new BorderLayout());
-				pgnPanel.add(new JLabel("PGN:"), BorderLayout.NORTH);
-				pgnPanel.add(pgnScrollPane, BorderLayout.SOUTH);
-				JPanel fenPanel = new JPanel();
-				fenPanel.setLayout(new BorderLayout());
-				fenPanel.add(new JLabel("FEN:"), BorderLayout.NORTH);
-				fenPanel.add(fen, BorderLayout.SOUTH);
-				JPanel rawMovesPanel = new JPanel();
-				rawMovesPanel.setLayout(new BorderLayout());
-				rawMovesPanel.add(new JLabel("Raw Moves:"), BorderLayout.NORTH);
-				rawMovesPanel.add(rawScrollPane, BorderLayout.SOUTH);
-				
-				
-				
-				p.add(pgnPanel, BorderLayout.NORTH);
-				p.add(fenPanel, BorderLayout.CENTER);
-				p.add(rawMovesPanel, BorderLayout.SOUTH);
+    private JPanel buildScrollPanel(String title, String content) {
+        JPanel panel = new JPanel(new BorderLayout());
+        JLabel label = new JLabel(title);
+        JTextArea area = new JTextArea(content);
+        area.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(area);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        panel.add(label, BorderLayout.NORTH);
+        panel.add(scrollPane, BorderLayout.CENTER);
+        return panel;
+    }
 
-				JOptionPane.showMessageDialog(null, p, "Details", JOptionPane.PLAIN_MESSAGE);
-			}
-		});
+    public Integer[] handleLocationClicked(int xLoc, int yLoc) {
+        if (chessView.getSelected() == null) {
+            chessView.setSelected(game.getBoard().getPiece(xLoc, yLoc));
+            chessView.repaint();
+            return null;
+        } else {
+            Integer[] move = {
+                chessView.getSelected().getX(),
+                chessView.getSelected().getY(),
+                xLoc, yLoc
+            };
+            chessView.setSelected(null);
+            chessView.repaint();
+            return move;
+        }
+    }
 
-	}
+    public int getCurrentSide() {
+        return game.getCurrentSide();
+    }
 
-	/**
-	 * 
-	 */
-	private void centerWindow() {
-		this.setSize(424, 500);
+    public static void popup(String message) {
+        JOptionPane.showMessageDialog(null, message, "", JOptionPane.PLAIN_MESSAGE);
+    }
 
-		Dimension screenDimensions = Toolkit.getDefaultToolkit().getScreenSize();
-		setLocation((int) ((screenDimensions.getWidth() - getWidth()) / 2),
-				(int) ((screenDimensions.getHeight() - getHeight()) / 2));
-	}
+    private void centerWindow() {
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        setLocation((screen.width - getWidth()) / 2,
+                (screen.height - getHeight()) / 2);
+    }
 
-	public void isOver() {
-		if (game.getWinner()!=-1){
-			if (game.getInvalidMovesCount() >= Game.MAXINVALIDMOVES){
-				JOptionPane.showMessageDialog(null, "Winner is player " + (game.getWinner() + 1)+
-						"\nAI submitted too many invalid moves.");
-			} else {
-				JOptionPane.showMessageDialog(null, "Winner is player " + (game.getWinner() + 1));
-			}
-			updateTimer.stop();
-		}
-	}
-
-	public Integer[] handleLocationClicked(int xLoc, int yLoc) {
-		if (chessView.getSelected() == null) {
-			chessView.setSelected(game.getBoard().getPiece(xLoc, yLoc));
-			chessView.repaint();
-			return null;
-		} else {
-			Integer[] move = new Integer[4];
-			move[0] = chessView.getSelected().getX();
-			move[1] = chessView.getSelected().getY();
-			move[2] = xLoc;
-			move[3] = yLoc;
-			chessView.setSelected(null);
-			chessView.repaint();
-			return move;
-		}
-	}
-
-	public static void popup(String message) {
-		JOptionPane.showMessageDialog(null, message, "", JOptionPane.PLAIN_MESSAGE);
-	}
-	
-	public int getCurrentSide(){
-		return game.getCurrentSide();
-	}
+    private String htmlLabel(String label, boolean highlight, String time) {
+        return highlight
+                ? "<html>" + label + ": <font color='red'>" + time + "</font></html>"
+                : "<html>" + label + ": " + time + "</html>";
+    }
 }

@@ -1,259 +1,357 @@
 package chessModel;
 
-// TODO rework this stuff, as it is Desktop specific
-// HERE --------------------------------------------------------
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-
-import javax.swing.Timer;
-// TO HERE -----------------------------------------------------
-
 import chessModel.piece.Piece;
 import chessViewController.HumanPlayer;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class Game {
-	private int currentSide;
-	private int gameMode;
-	private Board board;
-	private Timer side1Timer;
-	private Timer side2Timer;
-	private Time player1TimeLeft;
-	private Time player2TimeLeft;
-	Player player1, player2;
-	private Thread computeMove;
-	private int winner;
-	private Timer advanceTurnTimer;
 
-	// Game Modes
-	public static int HUMAN_VS_AI = 0;
-	public static int HUMAN_VS_HUMAN = 1;
-	public static int AI_VS_AI = 2;
+    private final Board board;
+    private final ScheduledExecutorService scheduler;
+    private final Player player1, player2;
 
-	public static final int DEFAULT_TIME = 60 * 45; // In Seconds, 3600 is one
-													// hour
-	public static final int MAXINVALIDMOVES = 25;
+    // move counters
+    private int moveCount = 0;
+    private static final int MAX_HALF_MOVE_COUNT = 100;            // 50 full moves
+    private static final int MAX_MOVE_COUNT = Integer.MAX_VALUE; // or 500, if you like
 
-	private int invalidMovesCount;
+    // why the game ended
+    private String endReason = "";
 
-	public Game(int gameMode, Player player1, Player player2) {
-		board = new Board();
+    // game state
+    private int currentSide;
+    private int invalidMovesCount;
+    private int winner;
+    private final int gameMode;
 
-		this.gameMode = gameMode;
+    // timing
+    private final Time player1TimeLeft;
+    private final Time player2TimeLeft;
 
-		invalidMovesCount = 1;
+    // move executor
+    private Thread computeMove;
 
-		this.player1 = player1;
-		this.player2 = player2;
+    public static final int HUMAN_VS_AI = 0;
+    public static final int HUMAN_VS_HUMAN = 1;
+    public static final int AI_VS_AI = 2;
 
-		currentSide = 0;
+    private static final int DEFAULT_TIME_SECONDS = 60 * 45;
+    public static final int MAX_INVALID_MOVES = 10;
 
-		// -1 means nobody has won yet
-		winner = -1;
-		
-		board.setPlayerNames(player1.getName(), player2.getName());
+    public Game(int gameMode, Player player1, Player player2) {
+        this.gameMode = gameMode;
+        this.player1 = player1;
+        this.player2 = player2;
+        this.currentSide = 0;
+        this.invalidMovesCount = 1;
+        this.winner = -1;
+        this.board = new Board();
+        board.setPlayerNames(player1.getName(), player2.getName());
 
-		player1TimeLeft = new Time(DEFAULT_TIME);
-		player2TimeLeft = new Time(DEFAULT_TIME);
+        this.player1TimeLeft = new Time(DEFAULT_TIME_SECONDS);
+        this.player2TimeLeft = new Time(DEFAULT_TIME_SECONDS);
+        this.scheduler = Executors.newScheduledThreadPool(2);
 
-		side1Timer = new Timer(1000, new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				player1TimeLeft.dec();
-			}
-		});
-		side2Timer = new Timer(1000, new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				player2TimeLeft.dec();
-			}
-		});
-		side1Timer.start();
+        ChessLogger.logGameEvent("New game started: "
+                + player1.getName() + " vs. " + player2.getName()
+                + " Mode=" + describeMode(gameMode));
 
-		advanceTurnTimer = new Timer(100, new ActionListener() {
+        startClocks();
+        startGameLoop();
+    }
 
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				if (winner != -1) {
-					advanceTurnTimer.stop();
-				}
-				if (!computeMove.isAlive()) {
-					performTurn();
-				}
-			}
-		});
-		advanceTurnTimer.start();
+    private void startClocks() {
+        scheduler.scheduleAtFixedRate(() -> {
+            if (currentSide == 0) {
+                player1TimeLeft.dec();
+            }
+        }, 1, 1, TimeUnit.SECONDS);
 
-		performTurn();
-	}
+        scheduler.scheduleAtFixedRate(() -> {
+            if (currentSide == 1) {
+                player2TimeLeft.dec();
+            }
+        }, 1, 1, TimeUnit.SECONDS);
+    }
 
-	private void performTurn() {
-		if (computeMove != null) {
-			computeMove.interrupt();
-		}
+    private void startGameLoop() {
+        // kick off the very first turn
+        scheduler.schedule(this::performTurn, 0, TimeUnit.MILLISECONDS);
+    }
 
-		if (invalidMovesCount > MAXINVALIDMOVES || isCheckMate()) {
-			winner = binaryOpposite(currentSide);
-			return;
-		}
+    private void performTurn() {
+        ChessLogger.logGameEvent("Starting performTurn for side " + currentSide);
 
-		computeMove = new Thread(new Runnable() {
-			@Override
-			public void run() {
-				// We create this sand-box, so the player does not have
-				// direct
-				// access to the game board
-				Board sandbox = new Board();
-				sandbox.populateFromFEN(board.getFEN());
+        cancelPreviousMoveIfRunning();
 
-				// Poll the player for a move
-				Integer[] move = getCurrentPlayer().getMove(sandbox);
+        // log in‐check status at turn start
+        if (board.isInCheck(currentSide)) {
+            ChessLogger.logGameEvent(getCurrentPlayer().getName() + " is in check.");
+        }
 
-				int oldX = move[0];
-				int oldY = move[1];
-				int newX = move[2];
-				int newY = move[3];
+        // bail if already over
+        if (isGameOver()) {
+            ChessLogger.logGameEvent("Game is over at start of turn.");
+            declareWinner();
+            return;
+        }
 
-				Piece piece = board.getPiece(move[0], move[1]);
+        ChessLogger.logGameEvent("Turn begins: " + getCurrentPlayer().getName());
 
-				boolean validPiece = true;
-				if (piece == null) {
-					validPiece = false;
-				} else {
-					if (piece.getSide() != currentSide) {
-						validPiece = false;
-					}
-				}
+        computeMove = new Thread(() -> {
+            ChessLogger.logGameEvent("computeMove thread running for side " + currentSide);
+            ChessLogger.logGameEvent("Calling getMove(board) for " + getCurrentPlayer().getName());
 
-				if (!validPiece) {
-					incrementInvalidMoves();
-					return;
-				}
+            Integer[] move = getCurrentPlayer().getMove(board);
 
-				if (!move(oldX, oldY, newX, newY)) {
-					incrementInvalidMoves();
-				} else {
-					if (invalidMovesCount != 1) {
-						System.out.println();
-					}
-					invalidMovesCount = 1;
-				}
-			}
-		});
-		computeMove.start();
-	}
+            if (move == null) {
+                ChessLogger.logGameEvent("getMove() returned null for " + getCurrentPlayer().getName());
+                incrementInvalidMoves();
 
-	public void incrementInvalidMoves() {
-		if (getCurrentPlayer() instanceof HumanPlayer) {
-			// human players aren't punished
-			return;
-		}
-		if (invalidMovesCount == 1) {
-			String playerName = getCurrentPlayer().getName();
-			System.out.print(playerName + " submitted invalid 1");
-		} else if (invalidMovesCount < MAXINVALIDMOVES) {
-			System.out.print(" " + invalidMovesCount);
-		} else if (invalidMovesCount == MAXINVALIDMOVES) {
-			System.out.print(" " + invalidMovesCount + "\n");
-		}
-		invalidMovesCount++;
-	}
+            } else {
+                ChessLogger.logGameEvent(getCurrentPlayer().getName()
+                        + " attempted move: " + moveToString(move));
 
-	public Player getCurrentPlayer() {
-		if (currentSide == 0) {
-			return player1;
-		} else {
-			return player2;
-		}
-	}
+                if (move.length >= 4) {
+                    int oldX = move[0], oldY = move[1], newX = move[2], newY = move[3];
+                    Piece piece = board.getPiece(oldX, oldY);
 
-	public boolean move(int oldX, int oldY, int x, int y) {
-		Piece tmp = board.getPiece(oldX, oldY);
-		if (tmp == null) {
-			return false;
-		}
-		boolean moveSuccess = board.move(oldX, oldY, x, y);
-		if (tmp.getSide() == currentSide && moveSuccess) {
-			if (currentSide == 0) {
-				currentSide = 1;
-				side1Timer.stop();
-				side2Timer.start();
-			} else if (currentSide == 1) {
-				currentSide = 0;
-				side2Timer.stop();
-				side1Timer.start();
-			}
-		}
-		return moveSuccess;
-	}
+                    if (piece != null
+                            && piece.getSide() == currentSide
+                            && move(oldX, oldY, newX, newY)) {
 
-	public Board getBoard() {
-		return board;
-	}
+                        ChessLogger.logGameEvent("Move succeeded: " + moveToString(move));
 
-	public String getPlayer1Time() {
-		return player1TimeLeft.getTime();
-	}
+                        // increment our global move counter
+                        moveCount++;
+                        ChessLogger.logGameEvent("Move count is now " + moveCount);
 
-	public String getPlayer2Time() {
-		return player2TimeLeft.getTime();
-	}
+                        int nextSide = binaryOpposite(currentSide);
+                        if (board.isInCheck(nextSide)) {
+                            ChessLogger.logGameEvent("Check to "
+                                    + (nextSide == 0 ? player1.getName() : player2.getName()));
+                            if (isCheckMate()) {
+                                ChessLogger.logGameEvent("Checkmate! Winner: "
+                                        + getCurrentPlayer().getName());
+                            }
+                        } else if (isDraw()) {
+                            ChessLogger.logGameEvent("Draw by stalemate or no legal moves.");
+                        }
 
-	public int getCurrentSide() {
-		return currentSide;
-	}
+                        // reset invalid‐moves counter on valid move
+                        invalidMovesCount = 1;
 
-	public int getPlayer1Score() {
-		return board.getWhiteScore();
-	}
+                        // if we just triggered game‐over, handle it
+                        if (isGameOver()) {
+                            ChessLogger.logGameEvent("Game over after successful move.");
+                            declareWinner();
+                            return;
+                        }
 
-	public int getPlayer2Score() {
-		return board.getBlackScore();
-	}
+                        ChessLogger.logGameEvent("Move done, scheduling next turn.");
+                        scheduleNextTurn();
+                        return;
+                    }
+                }
 
-	/**
-	 * @param side
-	 *            The side that is being checked for checkmate
-	 * @return
-	 */
-	public boolean isCheckMate() {
-		if (!board.isInCheck(currentSide)) { // Can't be in checkmate if not in
-												// check
-			return false;
-		}
-		for (Integer[] move : board.getAllMoves(0)) {
-			Piece p = board.getPiece(move[0], move[1]);
-			if (board.resolvesCheck(p, move[2], move[3])) {
-				return false; // If there is a move that resolves check, it is
-								// not checkmate
-			}
-		}
-		return true;
-	}
+                ChessLogger.logGameEvent("Move invalid or piece mismatch, incrementing invalid moves.");
+                incrementInvalidMoves();
+            }
 
-	/**
-	 * @param side
-	 *            The side that is being checked for a draw
-	 * @return
-	 */
-	public boolean isDraw() {
-		return (board.getAllMoves(currentSide).size() == 0);
-	}
+            // after an invalid or null move, check again
+            if (isGameOver()) {
+                ChessLogger.logGameEvent("Game over after invalid move.");
+                declareWinner();
+            } else {
+                ChessLogger.logGameEvent("Scheduling next turn after invalid move.");
+                scheduleNextTurn();
+            }
+        });
 
-	public int getGameMode() {
-		return gameMode;
-	}
+        computeMove.start();
+        ChessLogger.logGameEvent("computeMove thread started.");
+    }
 
-	public int getWinner() {
-		return winner;
-	}
+    private String moveToString(Integer[] move) {
+        if (move == null) {
+            return "null move";
+        }
+        if (move.length < 4) {
+            return "incomplete move: " + java.util.Arrays.toString(move);
+        }
+        return "(" + move[0] + "," + move[1] + ") -> (" + move[2] + "," + move[3] + ")";
+    }
 
-	public int binaryOpposite(int num) {
-		if (num == 0) {
-			return 1;
-		} else {
-			return 0;
-		}
-	}
+    private void cancelPreviousMoveIfRunning() {
+        if (computeMove != null && computeMove.isAlive()) {
+            computeMove.interrupt();
+        }
+    }
 
-	public int getInvalidMovesCount() {
-		return invalidMovesCount;
-	}
+    public boolean isGameOver() {
+        boolean halfMoveDraw = board.getHalfMoveClock() >= MAX_HALF_MOVE_COUNT;
+        boolean moveLimit = moveCount > MAX_MOVE_COUNT;
+        boolean invalidDraw = invalidMovesCount > MAX_INVALID_MOVES;
+        boolean mate = isCheckMate();
+        boolean stalemate = isDraw();
+        boolean stuck = board.isThreatenedOrStuck(currentSide);
+
+        // DEBUG: exactly which condition is tripping
+        /*ChessLogger.logGameEvent(String.format(
+            "isGameOver? halfMove=%d/%d, moves=%d/%d, invalid=%d/%d, mate=%b, stalemate=%b",
+            board.getHalfMoveClock(), MAX_HALF_MOVE_COUNT,
+            moveCount, MAX_MOVE_COUNT,
+            invalidMovesCount, MAX_INVALID_MOVES,
+            mate, stalemate
+        ));*/
+        return halfMoveDraw
+                || moveLimit
+                || invalidDraw
+                || mate
+                || stalemate
+                || stuck;
+    }
+
+    private void declareWinner() {
+        // 1) 50-move rule
+        if (board.getHalfMoveClock() >= MAX_HALF_MOVE_COUNT) {
+            endReason = "Draw by 50-move rule (no pawn move or capture in 50 moves).";
+            winner = -1;
+
+            // 2) total-move limit
+        } else if (moveCount > MAX_MOVE_COUNT) {
+            endReason = "Draw due to move limit (" + moveCount + " moves).";
+            winner = -1;
+
+            // 3) checkmate (player is in check and has no moves left)
+        } else if (isCheckMate()) {
+            winner = binaryOpposite(currentSide);
+            endReason = "Checkmate! Winner: " + getCurrentPlayer().getName();
+
+            // 4) check or no legal moves (i.e., "stuck" condition)
+        } else if (board.isThreatenedOrStuck(currentSide)) {
+            // If the current side is either in check or cannot make a valid move
+            endReason = "Player is stuck (in check or no legal moves).";
+            winner = binaryOpposite(currentSide);
+
+            // 5) stalemate or no moves
+        } else if (isDraw()) {
+            endReason = "Draw by stalemate or no legal moves.";
+            winner = -1;
+
+            // 6) fallback
+        } else {
+            endReason = "Game over.";
+            winner = -1;
+        }
+
+        ChessLogger.logGameEvent(endReason);
+        scheduler.shutdown();
+    }
+
+    public boolean move(int oldX, int oldY, int newX, int newY) {
+        Piece p = board.getPiece(oldX, oldY);
+        if (p == null) {
+            return false;
+        }
+        boolean success = board.move(oldX, oldY, newX, newY);
+        if (success && p.getSide() == currentSide) {
+            currentSide = binaryOpposite(currentSide);
+        }
+        return success;
+    }
+
+    public void incrementInvalidMoves() {
+        if (getCurrentPlayer() instanceof HumanPlayer) {
+            return;
+        }
+        if (invalidMovesCount == 1) {
+            ChessLogger.logGameEvent(getCurrentPlayer().getName() + " invalid 1");
+        } else {
+            ChessLogger.logGameEvent(" " + invalidMovesCount);
+        }
+        invalidMovesCount++;
+    }
+
+    public boolean isCheckMate() {
+        return board.isInCheck(currentSide)
+                && board.getAllMoves(currentSide).isEmpty();
+    }
+
+    public boolean isDraw() {
+        return !board.isInCheck(currentSide)
+                && board.getAllMoves(currentSide).isEmpty();
+    }
+
+    public int binaryOpposite(int num) {
+        return (num == 0) ? 1 : 0;
+    }
+
+    public Player getCurrentPlayer() {
+        return (currentSide == 0) ? player1 : player2;
+    }
+
+    public int getCurrentSide() {
+        return currentSide;
+    }
+
+    public int getWinner() {
+        return winner;
+    }
+
+    public int getInvalidMovesCount() {
+        return invalidMovesCount;
+    }
+
+    public String getEndReason() {
+        return endReason;
+    }
+
+    public int getGameMode() {
+        return gameMode;
+    }
+
+    public String getPlayer1Time() {
+        return player1TimeLeft.getTime();
+    }
+
+    public String getPlayer2Time() {
+        return player2TimeLeft.getTime();
+    }
+
+    public int getPlayer1Score() {
+        return board.getWhiteScore();
+    }
+
+    public int getPlayer2Score() {
+        return board.getBlackScore();
+    }
+
+    public Board getBoard() {
+        return board;
+    }
+
+    private String describeMode(int m) {
+        return switch (m) {
+            case HUMAN_VS_AI ->
+                "Human vs AI";
+            case HUMAN_VS_HUMAN ->
+                "Human vs Human";
+            case AI_VS_AI ->
+                "AI vs AI";
+            default ->
+                "Unknown";
+        };
+    }
+
+    private void scheduleNextTurn() {
+        if (!scheduler.isShutdown()) {
+            ChessLogger.logGameEvent("Scheduling next performTurn in 200ms.");
+            scheduler.schedule(this::performTurn, 200, TimeUnit.MILLISECONDS);
+        } else {
+            ChessLogger.logGameEvent("Scheduler is shutdown; not scheduling next turn.");
+        }
+    }
 }

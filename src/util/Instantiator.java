@@ -10,58 +10,59 @@ import java.util.Enumeration;
 import javax.swing.JOptionPane;
 
 import chessModel.Player;
+import chessModel.ErrorLogger;
 
 public class Instantiator {
-	private static URLClassLoader loader;
 
-	public static Class<?> classToObject(String location, String name) throws ClassNotFoundException {
-		try {
-			loader = new URLClassLoader(new URL[] { new URL("file://" + location + "/") });
-			return loader.loadClass(name);
-		} catch (ClassNotFoundException e) {
-			e.printStackTrace();
-		} catch (MalformedURLException e) {
-			e.printStackTrace();
-		} catch (NoClassDefFoundError e) {
-			e.printStackTrace();
-		}
-		return null;
-	}
+    private static URLClassLoader loader;
 
-	public static Player makePlayer(String location, String name, int side) {
+    public static Class<?> classToObject(String location, String name) throws ClassNotFoundException {
+        try {
+            loader = new URLClassLoader(new URL[]{new URL("file://" + location + "/")});
+            return loader.loadClass(name);
+        } catch (ClassNotFoundException e) {
+            ErrorLogger.logException(e);
+        } catch (MalformedURLException e) {
+            ErrorLogger.logException(e);
+        } catch (NoClassDefFoundError e) {
+            ErrorLogger.logException(e);
+        }
+        return null;
+    }
 
-		Class<?> AI = null;
-		try {
-			AI = Instantiator.classToObject(location, name);
-		} catch (ClassNotFoundException e) {
-			e.printStackTrace();
-		}
+    public static Player makePlayer(String location, String name, int side) {
 
-		try {
-			Player instantiatedPlayer = (Player) AI.getDeclaredConstructor().newInstance();
-			instantiatedPlayer.init(name.substring(name.indexOf(".")+1,name.length()) + "-" + (side+1), side);
-			return instantiatedPlayer;
-		} catch (Exception e){
-			e.printStackTrace();
-		}
+        Class<?> AI = null;
+        try {
+            AI = Instantiator.classToObject(location, name);
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
 
-		JOptionPane.showMessageDialog(null, "Failed to load .class file");
-		return null;
-	}
-	
-	public static File[] getPackageContent(String packageName) throws IOException{
-	    ArrayList<File> list = new ArrayList<File>();
-	    Enumeration<URL> urls = Thread.currentThread().getContextClassLoader()
-	                            .getResources(packageName);
-	    while (urls.hasMoreElements()) {
-	        URL url = urls.nextElement();
-	        File dir = new File(url.getFile());
-	        for (File f : dir.listFiles()) {
-	            list.add(f);
-	        }
-	    }
-	    return list.toArray(new File[]{});
-	}
-	
-	
+        try {
+            Player instantiatedPlayer = (Player) AI.getDeclaredConstructor().newInstance();
+            instantiatedPlayer.init(name.substring(name.indexOf(".") + 1, name.length()) + "-" + (side + 1), side);
+            return instantiatedPlayer;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        JOptionPane.showMessageDialog(null, "Failed to load .class file");
+        return null;
+    }
+
+    public static File[] getPackageContent(String packageName) throws IOException {
+        ArrayList<File> list = new ArrayList<File>();
+        Enumeration<URL> urls = Thread.currentThread().getContextClassLoader()
+                .getResources(packageName);
+        while (urls.hasMoreElements()) {
+            URL url = urls.nextElement();
+            File dir = new File(url.getFile());
+            for (File f : dir.listFiles()) {
+                list.add(f);
+            }
+        }
+        return list.toArray(new File[]{});
+    }
+
 }
