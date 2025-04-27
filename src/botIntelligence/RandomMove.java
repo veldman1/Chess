@@ -1,4 +1,4 @@
-package artificialIntelligence;
+package botIntelligence;
 
 import java.util.ArrayList;
 import java.util.Random;

@@ -56,9 +56,9 @@ public class Launcher {
 
 		// Get list of AIs from the package artificalIntelligence
 		try {
-			files = Instantiator.getPackageContent("artificialIntelligence");
+			files = Instantiator.getPackageContent("botIntelligence");
 		} catch (IOException e1) {
-			System.err.println("Could not get package artificialIntelligence");
+			System.err.println("Could not get package botIntelligence");
 		}
 
 		// Make an arraylist of the AI names
@@ -151,7 +151,7 @@ public class Launcher {
 		Player p1, p2;
 		if (gameMode == Game.AI_VS_AI) {
 			File f1 = files[playerPicker1.getSelectedIndex()];
-			String className1 = "artificialIntelligence" + "."
+			String className1 = "botIntelligence" + "."
 					+ f1.getName().substring(0, f1.getName().indexOf("."));
 			p1 = Instantiator.makePlayer(f1.getPath(), className1, 0);
 		} else {
@@ -160,7 +160,7 @@ public class Launcher {
 		}
 		if (gameMode != Game.HUMAN_VS_HUMAN) {
 			File f2 = files[playerPicker2.getSelectedIndex()];
-			String className2 = "artificialIntelligence" + "."
+			String className2 = "botIntelligence" + "."
 					+ f2.getName().substring(0, f2.getName().indexOf("."));
 			p2 = Instantiator.makePlayer(f2.getPath(), className2, 1);
 		} else {
