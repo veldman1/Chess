@@ -1,46 +1,69 @@
 package chessViewController;
 
+import chessModel.Board;
+import chessModel.Player;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
-import chessModel.Board;
-import chessModel.Player;
-
 public class HumanPlayer extends Player {
 
-	private ChessView view;
-	private GraphicsGUI gui;
-	private Integer[] move;
-	private MouseAdapter humanInput;
+    private ChessView view;
+    private GraphicsGUI gui;
+    private Integer[] move;
+    private final Object moveLock = new Object();
 
-	public void setupView(GraphicsGUI theGui, ChessView theView) {
-		view = theView;
-		gui = theGui;
-		humanInput = new MouseAdapter() {
-			public void mouseReleased(MouseEvent e) {
-				if (gui.getCurrentSide() == side) {
-					int cellSize = view.getCellSize();
-					int xLoc = (e.getY()) / cellSize;
-					int yLoc = (e.getX()) / cellSize;
-					move = gui.handleLocationClicked(xLoc, yLoc);
-				}
-			}
-		};
+    /**
+     * Sets up the human player to listen for clicks on the board.
+     *
+     * @param theGui The GUI controller
+     * @param theView The chess view
+     */
+    public void setupView(GraphicsGUI theGui, ChessView theView) {
+        this.view = theView;
+        this.gui = theGui;
 
-		view.addMouseListener(humanInput);
-	}
+        MouseAdapter humanInput = new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (gui.getCurrentSide() == side && e.getButton() == MouseEvent.BUTTON1) {
+                    int cellSize = view.getCellSize();
+                    int xLoc = e.getY() / cellSize;
+                    int yLoc = e.getX() / cellSize;
 
-	@Override
-	public Integer[] getMove(Board board) {
-		while (move == null) {
-			try {
-				Thread.sleep(200);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-		}
-		Integer[] moveCopy = move;
-		move = null;
-		return moveCopy;
-	}
+                    Integer[] newMove = gui.handleLocationClicked(xLoc, yLoc);
+                    if (newMove != null) {
+                        synchronized (moveLock) {
+                            move = newMove;
+                            moveLock.notify();
+                        }
+                    }
+                }
+            }
+        };
+
+        view.addMouseListener(humanInput);
+    }
+
+    /**
+     * Blocks until the user selects a move through the GUI.
+     *
+     * @param board The board to reference (not used heavily here)
+     * @return The move array [oldX, oldY, newX, newY]
+     */
+    @Override
+    public Integer[] getMove(Board board) {
+        synchronized (moveLock) {
+            while (move == null) {
+                try {
+                    moveLock.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+            Integer[] moveCopy = move;
+            move = null;
+            return moveCopy;
+        }
+    }
 }

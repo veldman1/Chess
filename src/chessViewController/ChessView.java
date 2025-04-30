@@ -1,124 +1,129 @@
+// src/chessViewController/ChessView.java
 package chessViewController;
 
+import chessModel.Board;
+import chessModel.piece.Piece;
 import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
+import java.awt.Point;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.HashMap;
-
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import javax.swing.JPanel;
-
-import chessModel.Board;
-import chessModel.piece.Piece;
 import util.ChessUtil;
 
 @SuppressWarnings("serial")
 public class ChessView extends JPanel {
 
-	private Board b;
-	HashMap<String, Character> charMap;
-	private final Color brown = new Color(130,70,30);
-	private Piece selected;
+    private static final Map<String, Character> CHAR_MAP = Map.ofEntries(
+            Map.entry("K", '\u2654'), Map.entry("Q", '\u2655'),
+            Map.entry("R", '\u2656'), Map.entry("B", '\u2657'),
+            Map.entry("N", '\u2658'), Map.entry("P", '\u2659'),
+            Map.entry("k", '\u265A'), Map.entry("q", '\u265B'),
+            Map.entry("r", '\u265C'), Map.entry("b", '\u265D'),
+            Map.entry("n", '\u265E'), Map.entry("p", '\u265F')
+    );
 
-	public ChessView(Board b) {
-		setLayout(new FlowLayout());
-		
-		setSize(getHeight(),getHeight());
+    public final Board board;
+    private final Color brown = new Color(130, 70, 30);
+    private Piece selected;
 
-		this.b = b;
-		charMap = new HashMap<String, Character>();
+    // squares to overlay when highlighting
+    private List<Point> highlightSquares = new ArrayList<>();
 
-		charMap.put("K", '\u2654');
-		charMap.put("Q", '\u2655');
-		charMap.put("R", '\u2656');
-		charMap.put("B", '\u2657');
-		charMap.put("N", '\u2658');
-		charMap.put("P", '\u2659');
+    public ChessView(Board board) {
+        this.board = board;
+        setLayout(new FlowLayout());
+        setBackground(Color.WHITE);
 
-		charMap.put("k", '\u265A');
-		charMap.put("q", '\u265B');
-		charMap.put("r", '\u265C');
-		charMap.put("b", '\u265D');
-		charMap.put("n", '\u265E');
-		charMap.put("p", '\u265F');
-		
-		setBackground(Color.white);
-		
-		addMouseListener(new MouseAdapter() {
-			
-			@Override
-			public void mouseReleased(MouseEvent e) {
-				if (e.getButton() != 1){
-					int cellSize = getCellSize();
-					int xLoc = (e.getY()) / cellSize;
-					int yLoc = (e.getX()) / cellSize;
-					System.out.println(ChessUtil.convertLocation(xLoc, yLoc));
-				}
-			}
-		});
-	}
-	
-	public void setSelected(Piece p){
-		selected = p;
-	}
-	
-	public Piece getSelected(){
-		return selected;
-	}
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) {
+                    int cellSize = getCellSize();
+                    int xLoc = e.getY() / cellSize;
+                    int yLoc = e.getX() / cellSize;
+                    System.out.println(ChessUtil.convertLocation(xLoc, yLoc));
+                }
+            }
+        });
+    }
 
-	public void paintComponent(Graphics g) {
-		super.paintComponent(g);
-		boolean parity = false;
-		int cellSize = getCellSize();
-		
-		int fontSize = (cellSize * 3)/4;
-		
-		g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, fontSize));
-		
-		for (int y = 0; y < b.boardHeight; y++) {
-			for (int x = 0; x < b.boardWidth; x++) {
-				Piece p = b.getPiece(y, x);
-				g.setColor(Color.lightGray);
-				if (parity) {
-					g.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
-				}
-				g.setColor(brown);
-				String character;
-				if (p == null) {
-					character = "";
-				} else {
-					if (p.equals(selected)){
-						g.setColor(Color.blue);
-					}
-					character = convertChar(p.getChar());
-				}
-				g.drawString(character, x * cellSize + cellSize / 2  - fontSize / 2,
-						y * cellSize + cellSize / 2 + fontSize / 2);
-				parity = !parity;
-			}
+    /**
+     * Called by the GUI when you want to highlight a set of squares
+     */
+    public void setHighlightSquares(List<Point> squares) {
+        this.highlightSquares = new ArrayList<>(squares);
+        repaint();
+    }
 
-			// if even board alternate
-			if (b.boardWidth % 2 == 0) {
-				parity = !parity;
-			}
-		}
-	}
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
 
-	public int getCellSize() {
-		int cellSize = getWidth() / b.boardWidth;
-		if (getWidth() > getHeight()){
-			cellSize = getHeight() / b.boardHeight;
-		}
-		return cellSize;
-	}
+        final int cellSize = getCellSize();
+        final int fontSize = (cellSize * 3) / 4;
+        g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, fontSize));
 
-	private String convertChar(String key) {
-		Character c = charMap.get(key);
-		if (c == null) {
-			return key;
-		}
-		return Character.toString(c);
-	}
+        boolean parity = false;
+
+        for (int y = 0; y < board.boardHeight; y++) {
+            for (int x = 0; x < board.boardWidth; x++) {
+                // draw base square
+                g.setColor(parity ? Color.LIGHT_GRAY : Color.WHITE);
+                g.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+
+                // draw highlight overlay if requested
+                for (Point p : highlightSquares) {
+                    if (p.x == x && p.y == y) {
+                        g.setColor(new Color(0, 255, 0, 64));
+                        g.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                        break;
+                    }
+                }
+
+                // draw piece
+                Piece p = board.getPiece(y, x);
+                if (p != null) {
+                    if (p.equals(selected)) {
+                        g.setColor(Color.BLUE);
+                    } else if (p.getSide() == 0) {
+                        g.setColor(Color.RED);
+                    } else {
+                        g.setColor(Color.BLACK);
+                    }
+                    Character c = CHAR_MAP.getOrDefault(p.getChar(), p.getChar().charAt(0));
+                    String ch = c.toString();
+                    g.drawString(
+                            ch,
+                            x * cellSize + cellSize / 2 - fontSize / 2,
+                            y * cellSize + cellSize / 2 + fontSize / 2
+                    );
+                }
+
+                parity = !parity;
+            }
+            if (board.boardWidth % 2 == 0) {
+                parity = !parity;
+            }
+        }
+    }
+
+    public int getCellSize() {
+        int w = getWidth() / board.boardWidth;
+        int h = getHeight() / board.boardHeight;
+        return Math.min(w, h);
+    }
+
+    public void setSelected(Piece piece) {
+        this.selected = piece;
+    }
+
+    public Piece getSelected() {
+        return selected;
+    }
 }

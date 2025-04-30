@@ -2,23 +2,31 @@ package chessModel.piece;
 
 import chessModel.SquareStatus;
 
-public class Queen extends Piece
-{
-    public Queen(int x, int y, int side)
-    {
+public class Queen extends Piece {
+
+    public Queen(int x, int y, int side) {
         this.x = x;
         this.y = y;
         this.side = side;
     }
-    public String getChar(){
-        if(side==0)
+
+    @Override
+    public Piece deepCopy() {
+        return new Queen(this.x, this.y, this.side);
+    }
+
+    public String getChar() {
+        if (side == 0) {
             return "Q";
+        }
         return "q";
     }
-    public boolean validMove(int x, int y, SquareStatus status){
-        return ( ( this.x==x || this.y==y ) || (Math.abs(this.x-x) == Math.abs(this.y-y)) );
+
+    public boolean validMove(int x, int y, SquareStatus status) {
+        return ((this.x == x || this.y == y) || (Math.abs(this.x - x) == Math.abs(this.y - y)));
     }
-    public int getValue(){
-    	return 9;
+
+    public int getValue() {
+        return 9;
     }
 }
