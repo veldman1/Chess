@@ -36,8 +36,7 @@ public abstract class Piece {
 
     @Override
     public boolean equals(Object other) {
-        if (other instanceof Piece) {
-            Piece p = (Piece) other;
+        if (other instanceof Piece p) {
             return (this.x == p.getX() && this.y == p.getY() && this.side == p.getSide() && this.getClass() == p.getClass());
         }
         return false;
